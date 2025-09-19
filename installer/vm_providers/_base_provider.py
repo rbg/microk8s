@@ -37,11 +37,12 @@ class Provider(abc.ABC):
         echoer,
         is_ephemeral: bool = False,
         build_provider_flags: Dict[str, str] = None,
+        instance_name: str = "microk8s-vm",
     ) -> None:
         self.echoer = echoer
         self._is_ephemeral = is_ephemeral
 
-        self.instance_name = "microk8s-vm"
+        self.instance_name = instance_name
 
         if build_provider_flags is None:
             build_provider_flags = dict()

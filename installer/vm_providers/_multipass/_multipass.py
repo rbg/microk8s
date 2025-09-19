@@ -120,11 +120,13 @@ class Multipass(Provider):
         echoer,
         is_ephemeral: bool = False,
         build_provider_flags: Dict[str, str] = None,
+        instance_name: str = "microk8s-vm",
     ) -> None:
         super().__init__(
             echoer=echoer,
             is_ephemeral=is_ephemeral,
             build_provider_flags=build_provider_flags,
+            instance_name=instance_name,
         )
         self._multipass_cmd = MultipassCommand(platform=sys.platform)
         self._instance_info: Optional[InstanceInfo] = None

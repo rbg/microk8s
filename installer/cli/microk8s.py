@@ -14,8 +14,40 @@ from common.errors import BaseError
 from common.file_utils import get_kubeconfig_path, clear_kubeconfig
 from vm_providers.factory import get_provider_for
 from vm_providers.errors import ProviderNotFound, ProviderInstanceNotFoundError
+import subprocess
+import json
 
 logger = logging.getLogger(__name__)
+
+
+def find_microk8s_instance():
+    """Find a MicroK8s instance by checking for microk8s installation."""
+    try:
+        # Get list of all multipass instances
+        result = subprocess.run(
+            ["multipass", "list", "--format", "json"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        instances = json.loads(result.stdout)
+
+        # Check each instance for microk8s
+        for instance in instances.get("list", []):
+            instance_name = instance["name"]
+            # Check if instance has microk8s installed
+            check_result = subprocess.run(
+                ["multipass", "exec", instance_name, "--", "which", "microk8s"],
+                capture_output=True,
+                check=False
+            )
+            if check_result.returncode == 0:
+                return instance_name
+    except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError):
+        pass
+
+    # Default to the original name if we can't find an instance
+    return "microk8s-vm"
 
 
 @click.command(
@@ -113,6 +145,7 @@ def _show_install_help():
       --disk     Max volume in GB of the dynamically expandable hard disk to be used (default={definitions.DEFAULT_DISK_GB}, min={definitions.MIN_DISK_GB})
       --channel  Kubernetes version to install (default={definitions.DEFAULT_CHANNEL})
       --image    Ubuntu version to install (default={definitions.DEFAULT_IMAGE})
+      --hostname Custom hostname for the VM (default=microk8s-vm)
       -y, --assume-yes  Automatic yes to prompts"""  # noqa
     Echo.info(msg)
 
@@ -158,6 +191,7 @@ def install(args) -> None:
     parser.add_argument("--disk", default=definitions.DEFAULT_DISK_GB, type=disk)
     parser.add_argument("--channel", default=definitions.DEFAULT_CHANNEL, type=str)
     parser.add_argument("--image", default=definitions.DEFAULT_IMAGE, type=str)
+    parser.add_argument("--hostname", default="microk8s-vm", type=str)
     parser.add_argument(
         "-y", "--assume-yes", action="store_true", default=definitions.DEFAULT_ASSUME
     )
@@ -200,7 +234,7 @@ def install(args) -> None:
         else:
             raise provider_error
 
-    instance = vm_provider_class(echoer=echo)
+    instance = vm_provider_class(echoer=echo, instance_name=args.hostname)
     spec = vars(args)
     spec.update({"kubeconfig": get_kubeconfig_path()})
     instance.launch_instance(spec)
@@ -227,7 +261,8 @@ def uninstall() -> None:
         else:
             raise provider_error
 
-    instance = vm_provider_class(echoer=echo)
+    instance_name = find_microk8s_instance()
+    instance = vm_provider_class(echoer=echo, instance_name=instance_name)
     instance.destroy()
     clear_kubeconfig()
     echo.info("Thank you for using MicroK8s!")
@@ -248,7 +283,8 @@ def inspect() -> None:
     echo = Echo()
     try:
         vm_provider_class.ensure_provider()
-        instance = vm_provider_class(echoer=echo)
+        instance_name = find_microk8s_instance()
+        instance = vm_provider_class(echoer=echo, instance_name=instance_name)
         instance.get_instance_info()
 
         command = ["microk8s.inspect"]
@@ -286,7 +322,8 @@ def dashboard_proxy() -> None:
     echo = Echo()
     try:
         vm_provider_class.ensure_provider()
-        instance = vm_provider_class(echoer=echo)
+        instance_name = find_microk8s_instance()
+        instance = vm_provider_class(echoer=echo, instance_name=instance_name)
         instance.get_instance_info()
 
         echo.info("Checking if Dashboard is running.")
@@ -344,7 +381,8 @@ def start() -> None:
     vm_provider_name = "multipass"
     vm_provider_class = get_provider_for(vm_provider_name)
     vm_provider_class.ensure_provider()
-    instance = vm_provider_class(echoer=Echo())
+    instance_name = find_microk8s_instance()
+    instance = vm_provider_class(echoer=Echo(), instance_name=instance_name)
     instance_info = instance.get_instance_info()
     if not instance_info.is_running():
         instance.start()
@@ -355,7 +393,8 @@ def stop() -> None:
     vm_provider_name = "multipass"
     vm_provider_class = get_provider_for(vm_provider_name)
     vm_provider_class.ensure_provider()
-    instance = vm_provider_class(echoer=Echo())
+    instance_name = find_microk8s_instance()
+    instance = vm_provider_class(echoer=Echo(), instance_name=instance_name)
     instance_info = instance.get_instance_info()
     if instance_info.is_running():
         instance.stop()
@@ -367,7 +406,8 @@ def run(cmd) -> None:
     echo = Echo()
     try:
         vm_provider_class.ensure_provider()
-        instance = vm_provider_class(echoer=echo)
+        instance_name = find_microk8s_instance()
+        instance = vm_provider_class(echoer=echo, instance_name=instance_name)
         instance_info = instance.get_instance_info()
         if not instance_info.is_running():
             echo.warning("MicroK8s is not running. Please run `microk8s start`.")
@@ -391,7 +431,8 @@ def _get_microk8s_commands() -> List:
     echo = Echo()
     try:
         vm_provider_class.ensure_provider()
-        instance = vm_provider_class(echoer=echo)
+        instance_name = find_microk8s_instance()
+        instance = vm_provider_class(echoer=echo, instance_name=instance_name)
         instance_info = instance.get_instance_info()
         if instance_info.is_running():
             commands = instance.run("ls -1 /snap/bin/".split(), hide_output=True)
